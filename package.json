@@ -1,18 +1,17 @@
 {
   "name": "blog-generator",
   "version": "1.0.0",
-  "description": "AI-powered blog generator deployed on Cloudflare Workers",
+  "description": "AI-powered blog generator on Cloudflare Workers using Workers AI",
   "private": true,
+  "type": "module",
   "scripts": {
-    "install:all": "npm install && cd client && npm install && cd ..",
+    "install:all": "npm install && npm --prefix client install",
     "dev": "npm --prefix client start",
-    "build": "npm --prefix client run build && npm run build:worker",
-    "build:worker": "wrangler deploy --dry-run",
+    "build": "npm --prefix client run build",
     "deploy": "npm run build && wrangler deploy",
     "deploy:prod": "npm run build && wrangler deploy --env production",
     "preview": "wrangler dev",
-    "secret:set": "wrangler secret put",
-    "secret:delete": "wrangler secret delete",
+    "preview:local": "wrangler dev --local",
     "test": "npm --prefix client run test"
   },
   "keywords": [
@@ -20,17 +19,22 @@
     "generator",
     "cloudflare",
     "workers",
-    "ai",
-    "react"
+    "workers-ai",
+    "react",
+    "llama"
   ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "wrangler": "^3.51.2",
-    "itty-router": "^4.2.0"
+    "wrangler": "^3.59.0",
+    "itty-router": "^4.2.14"
+  },
+  "dependencies": {
+    "itty-router": "^4.2.14"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   },
   "repository": {
     "type": "git",
