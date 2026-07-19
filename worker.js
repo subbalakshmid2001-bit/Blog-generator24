@@ -1,11 +1,11 @@
 /**
  * Cloudflare Worker for Blog Generator
- * Serves React app and provides /api/generate endpoint with Workers AI
+ * Serves React app from client/build and provides /api/generate endpoint with Workers AI
  * Uses @cloudflare/kv-asset-handler for static asset serving
  */
 
 import { Router } from 'itty-router';
-import { getAssetFromKV } from '@cloudflare/kv-asset-handler';
+import { getAssetFromKV, mapRequestToAsset } from '@cloudflare/kv-asset-handler';
 
 const router = Router();
 
@@ -159,19 +159,22 @@ router.get('/api/health', healthCheck);
  */
 export default {
   async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+
     try {
-      // Check if this is an API request
-      const url = new URL(request.url);
+      // Handle API routes with router
       if (url.pathname.startsWith('/api/')) {
         return await router.handle(request, env, ctx);
       }
 
-      // Handle static assets and SPA routing
+      // Handle static assets with KV
       try {
-        // Try to get the asset from KV
+        // Map request to asset, handling SPA routing
+        let mappedRequest = mapRequestToAsset(request);
+        
         const asset = await getAssetFromKV(
           {
-            request,
+            request: mappedRequest,
             waitUntil: ctx.waitUntil,
           },
           {
@@ -182,44 +185,66 @@ export default {
           }
         );
 
-        // Set proper cache headers
+        // Set proper cache headers based on asset type
         const response = new Response(asset, { status: 200 });
         
-        if (url.pathname.match(/\.(js|css|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$/i)) {
-          // Long-term cache for versioned assets
+        // Cache versioned assets (with hash in filename) for 1 year
+        if (url.pathname.match(/\.[a-f0-9]+\.(js|css|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$/i)) {
           response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-        } else if (url.pathname.endsWith('.html') || url.pathname === '/') {
-          // Don't cache HTML files
+        }
+        // Don't cache HTML files - always revalidate
+        else if (url.pathname.endsWith('.html') || url.pathname === '/') {
           response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
+        }
+        // Cache static assets for 1 hour
+        else {
+          response.headers.set('Cache-Control', 'public, max-age=3600');
         }
 
         return response;
       } catch (e) {
-        // If asset not found and it's not an API route, serve index.html for SPA routing
-        if (url.pathname !== '/' && !url.pathname.includes('.')) {
-          try {
-            const indexAsset = await getAssetFromKV(
-              {
-                request: new Request(new URL('/index.html', request.url), request),
-                waitUntil: ctx.waitUntil,
-              },
-              {
-                ASSET_NAMESPACE: env.__STATIC_CONTENT,
-                ASSET_MANIFEST: env.__STATIC_CONTENT_MANIFEST
-                  ? JSON.parse(env.__STATIC_CONTENT_MANIFEST)
-                  : {},
-              }
-            );
-            const response = new Response(indexAsset, { status: 200 });
-            response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
-            return response;
-          } catch (indexError) {
-            console.error('Error serving index.html:', indexError);
-          }
+        // If not found and it looks like a file, return 404
+        if (url.pathname.includes('.') || url.pathname.includes('/static/')) {
+          console.warn(`Asset not found: ${url.pathname}`);
+          return new Response('Not Found', { status: 404 });
         }
 
-        // If all else fails, return 404
-        return new Response('Not Found', { status: 404 });
+        // For SPA routes without a file extension, try to serve index.html
+        try {
+          const indexRequest = new Request(
+            new URL('/index.html', request.url),
+            {
+              method: request.method,
+              headers: request.headers,
+            }
+          );
+
+          const indexAsset = await getAssetFromKV(
+            {
+              request: indexRequest,
+              waitUntil: ctx.waitUntil,
+            },
+            {
+              ASSET_NAMESPACE: env.__STATIC_CONTENT,
+              ASSET_MANIFEST: env.__STATIC_CONTENT_MANIFEST
+                ? JSON.parse(env.__STATIC_CONTENT_MANIFEST)
+                : {},
+            }
+          );
+
+          const response = new Response(indexAsset, { status: 200 });
+          response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
+          return response;
+        } catch (indexError) {
+          console.error(`Failed to serve index.html: ${indexError.message}`);
+          return new Response(
+            JSON.stringify({ error: 'Failed to load application' }),
+            {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
+        }
       }
     } catch (error) {
       console.error('Unhandled error:', error);
