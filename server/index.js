@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const blogRoutes = require('./routes/blog.routes');
+const keywordsRoutes = require('./routes/keywords.routes');
 const newsRoutes = require('./routes/news.routes');
 const imageRoutes = require('./routes/image.routes');
 
@@ -22,6 +23,7 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/api/blog', blogRoutes);
+app.use('/api/keywords', keywordsRoutes);
 app.use('/api/news', newsRoutes);
 app.use('/api/image', imageRoutes);
 
@@ -48,6 +50,7 @@ app.listen(PORT, () => {
   console.log(`🚀 Blog Generator Server running on http://localhost:${PORT}`);
   console.log(`📡 API endpoints available:`);
   console.log(`   - POST /api/blog/generate - Generate blog post`);
+  console.log(`   - GET /api/keywords - Get keyword lists`);
   console.log(`   - GET /api/news/:niche - Get news for niche`);
   console.log(`   - POST /api/image/generate - Generate images`);
 });
