@@ -169,81 +169,60 @@ export default {
 
       // Handle static assets with KV
       try {
-        // Map request to asset, handling SPA routing
-        let mappedRequest = mapRequestToAsset(request);
-        
-        const asset = await getAssetFromKV(
-          {
-            request: mappedRequest,
-            waitUntil: ctx.waitUntil,
-          },
-          {
-            ASSET_NAMESPACE: env.__STATIC_CONTENT,
-            ASSET_MANIFEST: env.__STATIC_CONTENT_MANIFEST
-              ? JSON.parse(env.__STATIC_CONTENT_MANIFEST)
-              : {},
-          }
-        );
-
-        // Set proper cache headers based on asset type
-        const response = new Response(asset, { status: 200 });
-        
-        // Cache versioned assets (with hash in filename) for 1 year
-        if (url.pathname.match(/\.[a-f0-9]+\.(js|css|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$/i)) {
-          response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
-        }
-        // Don't cache HTML files - always revalidate
-        else if (url.pathname.endsWith('.html') || url.pathname === '/') {
-          response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
-        }
-        // Cache static assets for 1 hour
-        else {
-          response.headers.set('Cache-Control', 'public, max-age=3600');
-        }
-
-        return response;
-      } catch (e) {
-        // If not found and it looks like a file, return 404
-        if (url.pathname.includes('.') || url.pathname.includes('/static/')) {
-          console.warn(`Asset not found: ${url.pathname}`);
-          return new Response('Not Found', { status: 404 });
-        }
-
-        // For SPA routes without a file extension, try to serve index.html
-        try {
-          const indexRequest = new Request(
-            new URL('/index.html', request.url),
+        // For files with extensions or explicit paths, try direct mapping
+        if (url.pathname.includes('.') || url.pathname === '/') {
+          const response = await getAssetFromKV(
             {
-              method: request.method,
-              headers: request.headers,
-            }
-          );
-
-          const indexAsset = await getAssetFromKV(
-            {
-              request: indexRequest,
+              request,
               waitUntil: ctx.waitUntil,
             },
             {
-              ASSET_NAMESPACE: env.__STATIC_CONTENT,
-              ASSET_MANIFEST: env.__STATIC_CONTENT_MANIFEST
-                ? JSON.parse(env.__STATIC_CONTENT_MANIFEST)
-                : {},
+              cacheControl: {
+                default: 'public, max-age=3600',
+                bypassCache: false,
+              },
             }
           );
-
-          const response = new Response(indexAsset, { status: 200 });
-          response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
           return response;
-        } catch (indexError) {
-          console.error(`Failed to serve index.html: ${indexError.message}`);
-          return new Response(
-            JSON.stringify({ error: 'Failed to load application' }),
+        }
+
+        // For SPA routes (no file extension), serve index.html
+        const indexRequest = new Request(new URL('/index.html', request.url), request);
+        const indexResponse = await getAssetFromKV(
+          {
+            request: indexRequest,
+            waitUntil: ctx.waitUntil,
+          },
+          {
+            cacheControl: {
+              default: 'public, max-age=0, must-revalidate',
+              bypassCache: false,
+            },
+          }
+        );
+        return indexResponse;
+      } catch (error) {
+        console.error(`Asset serving error for ${url.pathname}:`, error.message);
+        
+        // If all asset serving fails, try to serve index.html one more time
+        try {
+          const fallbackRequest = new Request(new URL('/index.html', request.url), request);
+          const fallbackResponse = await getAssetFromKV(
             {
-              status: 500,
-              headers: { 'Content-Type': 'application/json' },
+              request: fallbackRequest,
+              waitUntil: ctx.waitUntil,
+            },
+            {
+              cacheControl: {
+                default: 'public, max-age=0, must-revalidate',
+                bypassCache: false,
+              },
             }
           );
+          return fallbackResponse;
+        } catch (fallbackError) {
+          console.error('Failed to serve index.html as fallback:', fallbackError.message);
+          return new Response('Not Found', { status: 404 });
         }
       }
     } catch (error) {
