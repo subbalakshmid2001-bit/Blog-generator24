@@ -1,0 +1,38 @@
+# Ignore dependencies
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build
+build/
+dist/
+generated-images/
+public/generated/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swc
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Tests
+.nyc_output/
+coverage/
+
+# Misc
+.cache/
+.parcel-cache/
+.next/
+out/
+.turbo/

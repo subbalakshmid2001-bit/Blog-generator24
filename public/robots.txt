@@ -1,0 +1,40 @@
+# User-agent rules for all crawlers
+User-agent: *
+Allow: /
+Allow: /blog/
+Allow: /api/news/
+Allow: /api/blog/preview/
+Disallow: /admin/
+Disallow: /private/
+Disallow: *.json$
+
+# Google Bot
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 0
+
+# Bing Bot
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 1
+
+# ChatGPT/OpenAI Bot
+User-agent: GPTBot
+Allow: /blog/
+Allow: /api/blog/
+Allow: /api/news/
+
+# Perplexity Bot
+User-agent: PerplexityBot
+Allow: /blog/
+Allow: /api/blog/
+Allow: /api/news/
+
+# Claude/Anthropic
+User-agent: Claude-Web
+Allow: /blog/
+Allow: /api/blog/
+
+# Sitemap
+Sitemap: https://blog-generator.com/sitemap.xml
+Sitemap: https://blog-generator.com/sitemap-index.xml
