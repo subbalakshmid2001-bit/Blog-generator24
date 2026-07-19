@@ -1,110 +1,22 @@
-import { Router } from 'itty-router';
 import { getAssetFromKV } from '@cloudflare/kv-asset-handler';
 import manifestJSON from '__STATIC_CONTENT_MANIFEST';
 
 const assetManifest = JSON.parse(manifestJSON);
-const router = Router();
-
-async function generateBlogPost(request, env) {
-  try {
-    if (!env.AI) {
-      return jsonResponse({ error: 'Workers AI not available' }, 500);
-    }
-
-    const body = await request.json();
-    const { topic, niche, keyword, tone = 'professional', length = 'medium' } = body;
-
-    // Accept topic OR niche+keyword from React frontend
-    const blogTopic = topic || `${niche}: ${keyword}` || '';
-
-    if (!blogTopic || blogTopic.trim().length === 0) {
-      return jsonResponse({ error: 'Missing topic or niche/keyword' }, 400);
-    }
-
-    const lengthMap = { short: 300, medium: 600, long: 1000 };
-    const maxTokens = lengthMap[length] || 600;
-    const cleanTopic = blogTopic.trim().substring(0, 200);
-
-    const messages = [
-      {
-        role: 'system',
-        content: 'You are an expert blog writer. Write well-structured, engaging blog posts in markdown format.'
-      },
-      {
-        role: 'user',
-        content: `Write a ${length} blog post about "${cleanTopic}" in a ${tone} tone. Structure it with: # Title, introduction, 2-3 ## sections, and a conclusion. Use markdown formatting.`
-      }
-    ];
-
-    // ✅ Updated to llama-3.1-8b-instruct-fast (llama-2 is deprecated)
-    const response = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
-      messages,
-      max_tokens: maxTokens,
-    });
-
-    const generatedText = response?.response || '';
-
-    if (!generatedText || generatedText.trim().length === 0) {
-      return jsonResponse({ error: 'AI model returned empty response' }, 500);
-    }
-
-    return jsonResponse({
-      success: true,
-      topic: cleanTopic,
-      tone,
-      length,
-      content: generatedText.trim(),
-      model: '@cf/meta/llama-3.1-8b-instruct-fast',
-      timestamp: new Date().toISOString(),
-    });
-
-  } catch (error) {
-    console.error('Blog generation error:', error);
-    const errorMessage = error instanceof SyntaxError
-      ? 'Invalid JSON in request body'
-      : error.message || 'Failed to generate blog post';
-    return jsonResponse({ error: errorMessage }, 500);
-  }
-}
-
-function healthCheck() {
-  return jsonResponse({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    service: 'blog-generator',
-  });
-}
-
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
-  });
-}
-
-router.options('*', () => new Response(null, {
-  status: 204,
-  headers: {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  },
-}));
-
-router.post('/api/generate', generateBlogPost);
-router.get('/api/health', healthCheck);
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    if (url.pathname.startsWith('/api/')) {
-      return await router.handle(request, env, ctx);
+    if (url.pathname === '/api/generate' && request.method === 'POST') {
+      return generateBlogPost(request, env);
+    }
+
+    if (url.pathname === '/api/health') {
+      return jsonResponse({ status: 'ok', timestamp: new Date().toISOString() });
+    }
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: corsHeaders() });
     }
 
     try {
@@ -125,5 +37,58 @@ export default {
         return new Response('Not Found', { status: 404 });
       }
     }
-  },
+  }
 };
+
+function corsHeaders() {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+}
+
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders() }
+  });
+}
+
+async function generateBlogPost(request, env) {
+  try {
+    if (!env.AI) return jsonResponse({ error: 'Workers AI not available' }, 500);
+
+    const body = await request.json();
+    const { niche, keyword, topic, length = 'medium', tone = 'professional' } = body;
+    const blogTopic = topic || `${niche}: ${keyword}`;
+
+    if (!blogTopic.trim()) return jsonResponse({ error: 'Missing topic' }, 400);
+
+    const lengthMap = { short: 300, medium: 600, long: 1000 };
+    const maxTokens = lengthMap[length] || 600;
+
+    const messages = [
+      { role: 'system', content: 'You are an expert blog writer. Write well-structured blog posts in markdown.' },
+      { role: 'user', content: `Write a ${length} blog post about "${blogTopic}" in a ${tone} tone. Use # for title, ## for sections.` }
+    ];
+
+    const response = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
+      messages,
+      max_tokens: maxTokens,
+    });
+
+    const content = response?.response || '';
+    if (!content.trim()) return jsonResponse({ error: 'AI returned empty response' }, 500);
+
+    return jsonResponse({
+      success: true,
+      content: content.trim(),
+      topic: blogTopic,
+      timestamp: new Date().toISOString(),
+    });
+
+  } catch (error) {
+    return jsonResponse({ error: error.message || 'Failed to generate' }, 500);
+  }
+}
