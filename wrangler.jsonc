@@ -55,16 +55,6 @@
     }
   },
   
-  // Resource limits
-  "limits": {
-    "cpu_ms": 50000
-  },
-  
-  // Observability
-  "observability": {
-    "enabled": true
-  },
-  
   // Compatibility flags for optimal performance
   "compatibility_flags": [
     "nodejs_compat"
