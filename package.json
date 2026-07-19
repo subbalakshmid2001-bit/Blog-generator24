@@ -29,7 +29,8 @@
     "wrangler": "^3.59.0"
   },
   "dependencies": {
-    "itty-router": "^5.0.22"
+    "itty-router": "^5.0.22",
+    "@cloudflare/kv-asset-handler": "^0.3.0"
   },
   "engines": {
     "node": ">=18.0.0",
