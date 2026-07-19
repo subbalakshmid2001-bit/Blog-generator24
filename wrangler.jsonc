@@ -25,36 +25,6 @@
     "binding": "AI"
   },
   
-  // Routes
-  "routes": [
-    {
-      "pattern": "*/api/*",
-      "zone_name": "workers.dev"
-    }
-  ],
-  
-  // Environments
-  "env": {
-    "production": {
-      "name": "blog-generator-prod",
-      "routes": [
-        {
-          "pattern": "*.yourdomain.com",
-          "zone_id": ""
-        }
-      ]
-    },
-    "staging": {
-      "name": "blog-generator-staging",
-      "routes": [
-        {
-          "pattern": "staging.yourdomain.com",
-          "zone_id": ""
-        }
-      ]
-    }
-  },
-  
   // Compatibility flags for optimal performance
   "compatibility_flags": [
     "nodejs_compat"
