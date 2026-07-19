@@ -5,8 +5,10 @@
  */
 
 import { Router } from 'itty-router';
-import { getAssetFromKV, mapRequestToAsset } from '@cloudflare/kv-asset-handler';
+import { getAssetFromKV } from '@cloudflare/kv-asset-handler';
+import manifestJSON from '__STATIC_CONTENT_MANIFEST';
 
+const assetManifest = JSON.parse(manifestJSON);
 const router = Router();
 
 /**
@@ -161,85 +163,34 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    // Handle API routes
+    if (url.pathname.startsWith('/api/')) {
+      return await router.handle(request, env, ctx);
+    }
+
+    // Serve static React files
     try {
-      // Handle API routes with router
-      if (url.pathname.startsWith('/api/')) {
-        return await router.handle(request, env, ctx);
-      }
-
-      // Handle static assets with KV
-      try {
-        // For files with extensions or explicit paths, try direct mapping
-        if (url.pathname.includes('.') || url.pathname === '/') {
-          const response = await getAssetFromKV(
-            {
-              request,
-              waitUntil: ctx.waitUntil,
-            },
-            {
-              cacheControl: {
-                default: 'public, max-age=3600',
-                bypassCache: false,
-              },
-            }
-          );
-          return response;
-        }
-
-        // For SPA routes (no file extension), serve index.html
-        const indexRequest = new Request(new URL('/index.html', request.url), request);
-        const indexResponse = await getAssetFromKV(
-          {
-            request: indexRequest,
-            waitUntil: ctx.waitUntil,
-          },
-          {
-            cacheControl: {
-              default: 'public, max-age=0, must-revalidate',
-              bypassCache: false,
-            },
-          }
-        );
-        return indexResponse;
-      } catch (error) {
-        console.error(`Asset serving error for ${url.pathname}:`, error.message);
-        
-        // If all asset serving fails, try to serve index.html one more time
-        try {
-          const fallbackRequest = new Request(new URL('/index.html', request.url), request);
-          const fallbackResponse = await getAssetFromKV(
-            {
-              request: fallbackRequest,
-              waitUntil: ctx.waitUntil,
-            },
-            {
-              cacheControl: {
-                default: 'public, max-age=0, must-revalidate',
-                bypassCache: false,
-              },
-            }
-          );
-          return fallbackResponse;
-        } catch (fallbackError) {
-          console.error('Failed to serve index.html as fallback:', fallbackError.message);
-          return new Response('Not Found', { status: 404 });
-        }
-      }
-    } catch (error) {
-      console.error('Unhandled error:', error);
-      return new Response(
-        JSON.stringify({
-          error: 'Internal Server Error',
-          message: error.message,
-        }),
-        {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          },
-        }
+      return await getAssetFromKV(
+        { request, waitUntil: ctx.waitUntil.bind(ctx) },
+        { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest }
       );
+    } catch (e) {
+      console.error(`Asset not found for ${url.pathname}, trying index.html`);
+      
+      // SPA fallback — serve index.html for all unknown routes
+      try {
+        const indexRequest = new Request(
+          new URL('/index.html', request.url).toString(),
+          request
+        );
+        return await getAssetFromKV(
+          { request: indexRequest, waitUntil: ctx.waitUntil.bind(ctx) },
+          { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest }
+        );
+      } catch (e2) {
+        console.error('Failed to serve index.html:', e2.message);
+        return new Response('Not Found', { status: 404 });
+      }
     }
   },
 };
