@@ -1,54 +1,13 @@
 /**
  * Cloudflare Worker for Blog Generator
  * Serves React app and provides /api/generate endpoint with Workers AI
- * No external APIs or secrets required - uses env.AI directly
+ * Uses @cloudflare/kv-asset-handler for static asset serving
  */
 
 import { Router } from 'itty-router';
+import { getAssetFromKV } from '@cloudflare/kv-asset-handler';
 
 const router = Router();
-
-/**
- * Serve React SPA from build directory
- */
-async function serveAsset(pathname, env) {
-  try {
-    // Normalize path
-    let assetPath = pathname === '/' ? 'index.html' : pathname.replace(/^\//, '');
-    
-    // Try to get the asset
-    if (env.ASSETS) {
-      const asset = await env.ASSETS.get(assetPath);
-      if (asset) {
-        const contentType = getContentType(assetPath);
-        return new Response(asset, {
-          headers: {
-            'Content-Type': contentType,
-            'Cache-Control': assetPath.includes('.') ? 'public, max-age=31536000' : 'no-cache',
-          },
-        });
-      }
-    }
-
-    // Fallback to index.html for SPA routing (only for non-API paths)
-    if (!assetPath.startsWith('api/') && env.ASSETS) {
-      const html = await env.ASSETS.get('index.html');
-      if (html) {
-        return new Response(html, {
-          headers: {
-            'Content-Type': 'text/html; charset=utf-8',
-            'Cache-Control': 'no-cache',
-          },
-        });
-      }
-    }
-
-    return new Response('Not Found', { status: 404 });
-  } catch (error) {
-    console.error('Asset serving error:', error);
-    return new Response('Internal Server Error', { status: 500 });
-  }
-}
 
 /**
  * Generate blog post using Cloudflare Workers AI (Llama 2)
@@ -161,31 +120,6 @@ function healthCheck() {
 }
 
 /**
- * Get content type based on file extension
- */
-function getContentType(path) {
-  const ext = path.split('.').pop().toLowerCase();
-  const types = {
-    html: 'text/html; charset=utf-8',
-    css: 'text/css; charset=utf-8',
-    js: 'application/javascript; charset=utf-8',
-    json: 'application/json',
-    png: 'image/png',
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    gif: 'image/gif',
-    svg: 'image/svg+xml',
-    ico: 'image/x-icon',
-    woff: 'font/woff',
-    woff2: 'font/woff2',
-    ttf: 'font/ttf',
-    webp: 'image/webp',
-    mp4: 'video/mp4',
-  };
-  return types[ext] || 'application/octet-stream';
-}
-
-/**
  * Helper to create JSON responses with CORS headers
  */
 function jsonResponse(data, status = 200) {
@@ -221,25 +155,79 @@ router.post('/api/generate', generateBlogPost);
 router.get('/api/health', healthCheck);
 
 /**
- * Catch-all for React SPA - serve index.html for client-side routing
- */
-router.all('*', ({ request, env }) => {
-  const url = new URL(request.url);
-  return serveAsset(url.pathname, env);
-});
-
-/**
- * Main fetch handler
+ * Main fetch handler with static asset serving
  */
 export default {
   async fetch(request, env, ctx) {
     try {
-      const response = await router.handle(request, env, ctx);
-      return response;
+      // Check if this is an API request
+      const url = new URL(request.url);
+      if (url.pathname.startsWith('/api/')) {
+        return await router.handle(request, env, ctx);
+      }
+
+      // Handle static assets and SPA routing
+      try {
+        // Try to get the asset from KV
+        const asset = await getAssetFromKV(
+          {
+            request,
+            waitUntil: ctx.waitUntil,
+          },
+          {
+            ASSET_NAMESPACE: env.__STATIC_CONTENT,
+            ASSET_MANIFEST: env.__STATIC_CONTENT_MANIFEST
+              ? JSON.parse(env.__STATIC_CONTENT_MANIFEST)
+              : {},
+          }
+        );
+
+        // Set proper cache headers
+        const response = new Response(asset, { status: 200 });
+        
+        if (url.pathname.match(/\.(js|css|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot)$/i)) {
+          // Long-term cache for versioned assets
+          response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+        } else if (url.pathname.endsWith('.html') || url.pathname === '/') {
+          // Don't cache HTML files
+          response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
+        }
+
+        return response;
+      } catch (e) {
+        // If asset not found and it's not an API route, serve index.html for SPA routing
+        if (url.pathname !== '/' && !url.pathname.includes('.')) {
+          try {
+            const indexAsset = await getAssetFromKV(
+              {
+                request: new Request(new URL('/index.html', request.url), request),
+                waitUntil: ctx.waitUntil,
+              },
+              {
+                ASSET_NAMESPACE: env.__STATIC_CONTENT,
+                ASSET_MANIFEST: env.__STATIC_CONTENT_MANIFEST
+                  ? JSON.parse(env.__STATIC_CONTENT_MANIFEST)
+                  : {},
+              }
+            );
+            const response = new Response(indexAsset, { status: 200 });
+            response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
+            return response;
+          } catch (indexError) {
+            console.error('Error serving index.html:', indexError);
+          }
+        }
+
+        // If all else fails, return 404
+        return new Response('Not Found', { status: 404 });
+      }
     } catch (error) {
-      console.error('Request error:', error);
+      console.error('Unhandled error:', error);
       return new Response(
-        JSON.stringify({ error: 'Internal Server Error' }),
+        JSON.stringify({
+          error: 'Internal Server Error',
+          message: error.message,
+        }),
         {
           status: 500,
           headers: {
