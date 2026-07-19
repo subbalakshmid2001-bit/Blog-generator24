@@ -1,0 +1,125 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background-color: #0b1120;
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Loading spinner animation */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Smooth transitions */
+button,
+input,
+select,
+textarea {
+  transition: all 0.3s ease;
+}
+
+/* Focus styles */
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Responsive text */
+h1 {
+  @apply text-3xl md:text-4xl lg:text-5xl;
+}
+
+h2 {
+  @apply text-2xl md:text-3xl;
+}
+
+h3 {
+  @apply text-xl md:text-2xl;
+}
+
+/* Prose styling for generated content */
+.prose-invert {
+  color: #e2e8f0;
+}
+
+.prose-invert h1,
+.prose-invert h2,
+.prose-invert h3 {
+  color: #f1f5f9;
+}
+
+.prose-invert a {
+  color: #3b82f6;
+  text-decoration: underline;
+}
+
+.prose-invert a:hover {
+  color: #60a5fa;
+}
+
+.prose-invert strong {
+  color: #f1f5f9;
+}
+
+.prose-invert code {
+  background-color: #1e293b;
+  color: #e2e8f0;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+}
+
+.prose-invert pre {
+  background-color: #1e293b;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.prose-invert blockquote {
+  border-left-color: #3b82f6;
+  color: #cbd5e1;
+}
