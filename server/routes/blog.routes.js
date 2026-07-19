@@ -9,77 +9,105 @@ const imageGenerator = require('../services/imageGenerator');
 const seoOptimizer = require('../services/seoOptimizer');
 const schemaGenerator = require('../services/schemaGenerator');
 const newsService = require('../services/newsService');
-const { generateSlug, generateMetaDescription } = require('../utils/helpers');
+const { generateSlug } = require('../utils/helpers');
 
-// Generate complete blog post
+/**
+ * POST /api/blog/generate
+ * Expects: { niche: string, keywords: [string], imageCount?: number, language?: string }
+ * Returns JSON: { title, slug, metaDescription, content, images, schema, seoReport, metaTags, hreflang, ... }
+ */
 router.post('/generate', async (req, res) => {
   try {
-    const { niche, keyword, imageCount = 5, language = 'en' } = req.body;
+    const { niche, keywords = [], imageCount = 5, language = 'en' } = req.body;
 
-    if (!niche || !keyword) {
-      return res.status(400).json({ error: 'Niche and keyword are required' });
+    if (!niche || !Array.isArray(keywords) || keywords.length === 0) {
+      return res.status(400).json({ error: 'Niche and keywords array are required' });
     }
 
-    console.log(`\n🚀 Starting blog generation for ${niche}: "${keyword}"`);
+    console.log(`\n🚀 Starting blog generation for ${niche}: [${keywords.join(', ')}]`);
 
     // Step 1: Fetch news context
     console.log('📰 Step 1: Fetching news...');
-    res.write(`data: {"status": "Fetching news...", "progress": 10}\n\n`);
     const news = await newsService.getNewsForNiche(niche, 5);
     const newsContext = await newsService.formatNewsContext(news);
 
-    // Step 2: Generate blog content
+    // Step 2: Generate blog content (adapted to accept keywords array)
     console.log('✍️  Step 2: Generating blog content...');
-    res.write(`data: {"status": "Generating blog content...", "progress": 20}\n\n`);
-    const contentResult = await contentGenerator.generateBlogContent(niche, keyword, newsContext, imageCount);
-    const htmlContent = contentResult.html;
+    const contentResult = await contentGenerator.generateBlogContent(niche, keywords, newsContext, imageCount);
+    let htmlContent = contentResult.html || '<p>No content generated.</p>';
 
-    // Step 3: Generate title
+    // Step 3: Generate title & slug
     console.log('📝 Step 3: Generating SEO title...');
-    res.write(`data: {"status": "Generating title...", "progress": 30}\n\n`);
-    const title = await contentGenerator.generateTitle(niche, keyword);
+    const title = await contentGenerator.generateTitle(niche, keywords.join(' '));
     const slug = generateSlug(title);
 
     // Step 4: Generate meta description
     console.log('📄 Step 4: Generating meta description...');
-    res.write(`data: {"status": "Generating meta description...", "progress": 40}\n\n`);
-    const metaDescription = await contentGenerator.generateMetaDescription(htmlContent, keyword);
+    const metaDescription = await contentGenerator.generateMetaDescription(htmlContent, keywords.join(' '));
 
-    // Step 5: Generate images
+    // Step 5: Generate images (returns array of URLs or data URIs)
     console.log('🎨 Step 5: Generating images...');
-    res.write(`data: {"status": "Generating images...", "progress": 50}\n\n`);
-    const images = await imageGenerator.generateImages(niche, keyword, imageCount);
+    const count = Math.max(0, Math.min(10, parseInt(imageCount, 10) || 0)); // safe limits
+    const images = await imageGenerator.generateImages(niche, keywords.join(', '), count);
+
+    // Insert image placeholders into the content: <!--IMG_0-->, <!--IMG_1-->, ...
+    // Strategy: insert placeholders at reasonable spots (after first N paragraphs) or append if not enough paragraphs.
+    for (let i = 0; i < images.length; i++) {
+      const placeholder = `<!--IMG_${i}-->`;
+      // Try to insert after nth <p>. If not found, append at end of content
+      const pMatches = htmlContent.match(/<\/p>/gi);
+      if (pMatches && pMatches.length >= i + 1) {
+        // Insert after the (i+1)-th </p>
+        let insertIndex = nthIndexOf(htmlContent, '</p>', i + 1);
+        if (insertIndex !== -1) {
+          const before = htmlContent.slice(0, insertIndex + 4);
+          const after = htmlContent.slice(insertIndex + 4);
+          htmlContent = before + `\n${placeholder}\n` + after;
+          continue;
+        }
+      }
+      // fallback: append placeholder at end of content body
+      htmlContent = htmlContent + `\n${placeholder}\n`;
+    }
+
+    // Prepare three identical advertisement placeholders
+    const adPlaceholderHtml = `<div class="ad-placeholder" data-ad-slot="" data-ad-url="">AD_PLACEHOLDER</div>`;
+    // Insert ad placeholders in three spots:
+    // 1) after first paragraph
+    // 2) after second paragraph (or after first if only one)
+    // 3) before closing of article/body (append)
+    htmlContent = insertAdAfterNthParagraph(htmlContent, adPlaceholderHtml, 1);
+    htmlContent = insertAdAfterNthParagraph(htmlContent, adPlaceholderHtml, 2);
+    htmlContent = htmlContent + `\n${adPlaceholderHtml}\n`;
 
     // Step 6: Generate schema
     console.log('🏗️  Step 6: Generating schema markup...');
-    res.write(`data: {"status": "Generating schema...", "progress": 70}\n\n`);
     const canonicalUrl = `https://blog-generator.com/blog/${slug}/`;
     const schema = await contentGenerator.generateSchemaMarkup(
       htmlContent,
       title,
-      keyword,
+      keywords.join(', '),
       'Blog Generator',
       new Date().toISOString()
     );
 
     // Step 7: SEO Analysis
     console.log('🔍 Step 7: Analyzing SEO...');
-    res.write(`data: {"status": "Analyzing SEO...", "progress": 80}\n\n`);
     const seoAnalysis = seoOptimizer.analyzeSEO(
       htmlContent,
       title,
       metaDescription,
-      keyword,
+      keywords.join(', '),
       niche
     );
-    const seoReport = seoOptimizer.generateSEOReport(seoAnalysis, title, metaDescription, keyword);
+    const seoReport = seoOptimizer.generateSEOReport(seoAnalysis, title, metaDescription, keywords.join(', '));
 
-    // Step 8: Generate meta tags and hreflang
+    // Step 8: Meta tags and hreflang
     console.log('🌐 Step 8: Generating meta tags...');
     const metaTags = schemaGenerator.generateHtmlMeta({
       title,
       description: metaDescription,
-      keyword,
+      keyword: keywords.join(', '),
       author: 'Blog Generator',
       canonicalUrl,
       datePublished: new Date().toISOString(),
@@ -93,45 +121,54 @@ router.post('/generate', async (req, res) => {
     );
 
     console.log('✅ Blog generation complete!');
-    res.write(`data: {"status": "Complete!", "progress": 100}\n\n`);
 
-    // Send final result
-    setTimeout(() => {
-      res.write(`data: {"status": "Complete", "progress": 100, "result": ${JSON.stringify({
-        title,
-        slug,
-        metaDescription,
-        content: htmlContent,
-        images,
-        schema,
-        seoReport,
-        metaTags,
-        hreflang,
-        niche,
-        keyword,
-        language,
-        generatedAt: new Date().toISOString(),
-        wordCount: contentResult.metadata.wordCount
-      })}}\n\n`);
-      res.end();
-    }, 500);
-
+    // Final response: return the full HTML content (with placeholders) and images[] so client can embed them
+    return res.json({
+      title,
+      slug,
+      metaDescription,
+      content: htmlContent,
+      images, // array length == imageCount (or fewer on partial failures)
+      schema,
+      seoReport,
+      metaTags,
+      hreflang,
+      niche,
+      keywords,
+      language,
+      generatedAt: new Date().toISOString(),
+      wordCount: contentResult.metadata ? contentResult.metadata.wordCount : (htmlContent.split(/\s+/).length)
+    });
   } catch (error) {
     console.error('Error in blog generation:', error);
-    res.write(`data: {"error": "${error.message}", "progress": 0}\n\n`);
-    res.end();
+    return res.status(500).json({ error: error.message });
   }
 });
 
-// Get blog preview
-router.get('/preview/:slug', (req, res) => {
-  try {
-    const { slug } = req.params;
-    // In production, fetch from database
-    res.json({ slug, message: 'Preview endpoint' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+/**
+ * helper: find nth index of substring
+ */
+function nthIndexOf(str, pat, n) {
+  let i = -1;
+  while (n-- && i++ < str.length) {
+    i = str.indexOf(pat, i);
+    if (i === -1) return -1;
   }
-});
+  return i;
+}
+
+/**
+ * helper: insert ad placeholder after nth </p>
+ */
+function insertAdAfterNthParagraph(html, adHtml, n) {
+  const idx = nthIndexOf(html, '</p>', n);
+  if (idx !== -1) {
+    const before = html.slice(0, idx + 4);
+    const after = html.slice(idx + 4);
+    return before + `\n${adHtml}\n` + after;
+  }
+  // fallback: append near end
+  return html + `\n${adHtml}\n`;
+}
 
 module.exports = router;
