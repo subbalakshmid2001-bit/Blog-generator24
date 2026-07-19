@@ -1,7 +1,7 @@
 /**
  * Cloudflare Wrangler Configuration
  * Deploy: wrangler login && wrangler deploy
- * No secrets required - uses Workers AI directly
+ * Uses Workers AI directly - no secrets required
  */
 {
   // Project metadata
