@@ -23,6 +23,24 @@ export default {
         return await generateImagesEndpoint(request, env);
       }
 
+      // Route: download content as a file
+      if (url.pathname === '/api/download' && request.method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const { content = '', topic = 'blog_post', format = 'md' } = body;
+        const safeName = (topic || 'blog_post').replace(/[^a-zA-Z0-9-_]/g, '_').substring(0, 50);
+        const contentType = format === 'html' ? 'text/html' : format === 'txt' ? 'text/plain' : 'text/markdown';
+        const ext = format === 'html' ? 'html' : format === 'txt' ? 'txt' : 'md';
+
+        return new Response(content, {
+          status: 200,
+          headers: {
+            'Content-Type': `${contentType}; charset=utf-8`,
+            'Content-Disposition': `attachment; filename="${safeName}.${ext}"`,
+            ...corsHeaders()
+          }
+        });
+      }
+
       // Route: keywords list (reads API.json from static assets)
       if (url.pathname === '/api/keywords' && request.method === 'GET') {
         try {
@@ -109,8 +127,8 @@ async function generateBlogPost(request, env) {
     const maxTokens = lengthMap[length] || 600;
 
     const messages = [
-      { role: 'system', content: 'You are an expert blog writer. Write well-structured blog posts in markdown.' },
-      { role: 'user', content: `Write a ${length} blog post about "${blogTopic}" in a ${tone} tone. Use # for title, ## for sections. Include placeholders for images as <!--IMG_n--> where n is image index.` }
+      { role: 'system', content: 'You are an expert blog writer. Write well-structured blog posts in markdown. Include ad placement placeholders using [AD_LINK_PLACEHOLDER_1], [AD_LINK_PLACEHOLDER_2], [AD_LINK_PLACEHOLDER_3] at strategic positions where ads would naturally fit (for example: after the introduction, between sections, and before the conclusion).' },
+      { role: 'user', content: `Write a ${length} blog post about "${blogTopic}" in a ${tone} tone. Use # for title, ## for sections. Include 2-3 ad link placeholders at strategic positions and include image placeholders as <!--IMG_n--> where n is the image index.` }
     ];
 
     const response = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fast', {
@@ -118,8 +136,22 @@ async function generateBlogPost(request, env) {
       max_tokens: maxTokens,
     });
 
-    const content = response?.response || '';
+    let content = response?.response || '';
     if (!content.trim()) return jsonResponse({ error: 'AI returned empty response' }, 500);
+
+    // Optionally generate a header image and prepend it to content (uses same image generation helper that uploads or returns data URLs)
+    let headerImageUrl = null;
+    try {
+      const headerPrompt = `A professional blog header image about: ${blogTopic}`;
+      const headerResult = await generateImageAndUpload(env, headerPrompt);
+      if (headerResult && headerResult.url) {
+        headerImageUrl = headerResult.url;
+        // Prepend a markdown image to the content so download/preview include the header
+        content = `![Blog Header Image](${headerImageUrl})\n\n` + content;
+      }
+    } catch (hErr) {
+      console.error('Header image generation failed:', hErr);
+    }
 
     // Generate images if requested (imageCount)
     const images = [];
@@ -173,7 +205,7 @@ async function generateImagesEndpoint(request, env) {
  */
 async function generateImageAndUpload(env, prompt) {
   // Use an image model; adjust model name if needed/available in your env
-  const imageModel = '@cf/stabilityai/stable-diffusion-xl-base-1.0';
+  const imageModel = '@cf/bytedance/stable-diffusion-xl-lightning';
 
   // env.AI.run returns a ReadableStream (binary image) for image models
   const aiResponse = await env.AI.run(imageModel, { prompt });
