@@ -1,26 +1,43 @@
 /**
  * Cloudflare Wrangler Configuration
  * Deploy: wrangler login && wrangler deploy
- * Uses Workers AI directly - no secrets required
+ * Workers AI binding and observability settings
  */
 {
   // Project metadata
   "name": "bloggenerator246",
   "main": "worker.js",
   "compatibility_date": "2024-12-16",
-  
+
   // Serve static files from React build
   "site": {
     "bucket": "./client/build"
   },
-  
+
   // Workers AI binding
   "ai": {
     "binding": "AI"
   },
-  
+
   // Compatibility flags for optimal performance
   "compatibility_flags": [
     "nodejs_compat"
-  ]
+  ],
+
+  // Observability settings (logging/tracing configuration)
+  "observability": {
+    "enabled": false,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": true,
+      "head_sampling_rate": 1
+    }
+  }
 }
